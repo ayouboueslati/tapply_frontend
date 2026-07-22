@@ -28,6 +28,10 @@ export default function TapPage() {
   // form state
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [gdprConsent, setGdprConsent] = useState(false);
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -79,14 +83,57 @@ export default function TapPage() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("Form submitted (step 1 placeholder):", {
-      ...formData,
-      gdpr_consent: gdprConsent
-    });
-    alert("Form submitted! Check console. Actual submission is step 2.");
+    setIsSubmitting(true);
+    setSubmitError(null);
+    
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const res = await fetch(`${apiUrl}/tap/${token}/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          idempotency_key: idempotencyKey,
+          consent: gdprConsent,
+          data: formData
+        })
+      });
+
+      if (!res.ok) {
+        let msg = "Unable to submit. Please try again.";
+        try {
+          const err = await res.json();
+          if (err.detail) msg = typeof err.detail === "string" ? err.detail : "Invalid form submission.";
+        } catch (_) {}
+        throw new Error(msg);
+      }
+      
+      setIsSuccess(true);
+    } catch (err: any) {
+      setSubmitError(err.message || "Network error. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
+  if (isSuccess) {
+    return (
+      <div className="px-6 py-12 flex flex-col items-center justify-center min-h-[50vh]">
+        <div className="text-center space-y-4">
+          <div className="mx-auto w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
+            <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <h1 className="text-2xl font-semibold text-stone-900">Thanks</h1>
+          <p className="text-stone-500 text-sm max-w-[250px] mx-auto">
+            {data.org_name || "The organization"} will be in touch.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="px-6 py-12 flex flex-col items-center">
@@ -163,12 +210,18 @@ export default function TapPage() {
           </label>
         </div>
 
-        <div className="pt-6">
+        <div className="pt-6 space-y-3">
+          {submitError && (
+            <div className="text-sm text-red-600 bg-red-50 p-3 rounded-md border border-red-100">
+              {submitError}
+            </div>
+          )}
           <button
             type="submit"
-            className="touch-target w-full flex items-center justify-center rounded-md bg-gold hover:bg-gold-hover text-white font-medium transition-colors"
+            disabled={isSubmitting}
+            className="touch-target w-full flex items-center justify-center rounded-md bg-gold hover:bg-gold-hover text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Submit
+            {isSubmitting ? "Submitting..." : "Submit"}
           </button>
         </div>
       </form>
