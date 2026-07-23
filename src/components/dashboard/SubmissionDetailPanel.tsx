@@ -1,0 +1,227 @@
+import { useState, useEffect } from "react";
+import { useAuth } from "@clerk/nextjs";
+import GlassPanel from "@/components/ui/GlassPanel";
+import { useOrgContext } from "@/components/dashboard/DashboardLayout";
+
+type Submission = {
+  id: string;
+  card_id: string;
+  org_id: string;
+  status: string;
+  branch: string | null;
+  data: Record<string, string>;
+  created_at: string;
+};
+
+type Props = {
+  submission: Submission | null;
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (updated: Submission) => void;
+  statusLabels: string[];
+};
+
+export default function SubmissionDetailPanel({
+  submission,
+  isOpen,
+  onClose,
+  onSave,
+  statusLabels,
+}: Props) {
+  const { getToken } = useAuth();
+  const { context } = useOrgContext();
+  
+  const [status, setStatus] = useState(submission?.status || "");
+  const [branch, setBranch] = useState(submission?.branch || "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+  // Reset local state when submission changes
+  useEffect(() => {
+    setStatus(submission?.status || "");
+    setBranch(submission?.branch || "");
+    setError(null);
+  }, [submission]);
+
+  // Handle escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isOpen) onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  const handleSave = async () => {
+    if (!submission) return;
+    setSaving(true);
+    setError(null);
+
+    try {
+      const token = await getToken();
+      const res = await fetch(`${apiUrl}/submissions/${submission.id}`, {
+        method: "PATCH",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          status: status,
+          branch: branch || null, // convert empty string to null
+        }),
+      });
+
+      if (res.ok) {
+        const updatedSubmission = await res.json();
+        onSave(updatedSubmission);
+        onClose();
+      } else if (res.status === 404) {
+        setError("This submission is no longer available.");
+      } else {
+        const errData = await res.json();
+        setError(errData.detail || "Failed to save submission.");
+      }
+    } catch {
+      setError("Network error while saving.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const labelMap = context?.form_fields.reduce((acc, f) => {
+    acc[f.name] = f.label || f.name;
+    return acc;
+  }, {} as Record<string, string>) || {};
+
+  return (
+    <>
+      {/* Dimmed backdrop */}
+      <div 
+        className="fixed inset-0 bg-[#0B1220]/60 backdrop-blur-sm z-40 transition-opacity"
+        onClick={onClose}
+      />
+      
+      {/* Slide-over panel */}
+      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-[#0B1220] border-l border-white/10 shadow-2xl flex flex-col transform transition-transform duration-300 ease-in-out translate-x-0">
+        
+        {/* Header */}
+        <div className="h-16 flex items-center justify-between px-6 border-b border-white/10 shrink-0 bg-white/[0.02]">
+          <h2 className="text-lg font-medium text-[#F5F3EE]">Submission Details</h2>
+          <button 
+            onClick={onClose}
+            className="text-white/40 hover:text-white transition-colors"
+            aria-label="Close panel"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {error && (
+            <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+              {error}
+            </div>
+          )}
+
+          {submission ? (
+            <>
+              {/* Editable Fields */}
+              <GlassPanel className="p-5 space-y-4">
+                <div>
+                  <label htmlFor="status-select" className="block text-xs font-medium text-white/40 uppercase tracking-wider mb-1.5">
+                    Status
+                  </label>
+                  <select
+                    id="status-select"
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value)}
+                    disabled={saving}
+                    className="w-full bg-[#0B1220]/60 border border-white/10 rounded-lg px-3 py-2 text-sm text-[#F5F3EE] focus:outline-none focus:ring-2 focus:ring-[#D4AF6A] focus:border-transparent appearance-none"
+                  >
+                    {/* Make sure the current status is in the list, even if it was removed from org labels mid-session (helps prevent it being silently switched if they just hit save) */}
+                    {!statusLabels.includes(submission.status) && (
+                      <option value={submission.status}>{submission.status} (Legacy)</option>
+                    )}
+                    {statusLabels.map((lbl) => (
+                      <option key={lbl} value={lbl}>{lbl}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="branch-input" className="block text-xs font-medium text-white/40 uppercase tracking-wider mb-1.5">
+                    Branch
+                  </label>
+                  <input
+                    id="branch-input"
+                    type="text"
+                    value={branch}
+                    onChange={(e) => setBranch(e.target.value)}
+                    disabled={saving}
+                    placeholder="e.g. New York, Remote"
+                    className="w-full bg-[#0B1220]/60 border border-white/10 rounded-lg px-3 py-2 text-sm text-[#F5F3EE] placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-[#D4AF6A] focus:border-transparent"
+                  />
+                </div>
+              </GlassPanel>
+
+              {/* Read-only Data Blob */}
+              <div>
+                <h3 className="text-xs font-medium text-white/40 uppercase tracking-wider mb-3">
+                  Candidate Data
+                </h3>
+                <GlassPanel className="overflow-hidden">
+                  <ul className="divide-y divide-white/[0.06]">
+                    {Object.entries(submission.data).map(([key, value]) => {
+                      if (key === "branch") return null; // already handled
+                      return (
+                        <li key={key} className="px-5 py-3">
+                          <p className="text-xs text-white/40 mb-0.5">{labelMap[key] || key}</p>
+                          <p className="text-sm text-[#F5F3EE]">{value || "—"}</p>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </GlassPanel>
+              </div>
+
+              {/* Metadata */}
+              <div className="text-xs text-white/30 text-center space-y-1 mt-4">
+                <p>Submitted: {new Date(submission.created_at).toLocaleString()}</p>
+                <p>ID: {submission.id}</p>
+              </div>
+            </>
+          ) : (
+            <div className="text-center text-white/40 py-8">
+              No submission selected.
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 border-t border-white/10 bg-white/[0.02] flex justify-end gap-3 shrink-0">
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="px-4 py-2 text-sm font-medium text-white/60 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving || !submission || (status === submission.status && branch === (submission.branch || ""))}
+            className="px-6 py-2 text-sm font-medium text-[#0B1220] bg-[#D4AF6A] rounded-lg hover:bg-[#E5C383] transition-colors disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save Changes"}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}

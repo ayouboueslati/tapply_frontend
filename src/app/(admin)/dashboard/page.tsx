@@ -5,6 +5,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import GlassPanel from "@/components/ui/GlassPanel";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { useOrgContext } from "@/components/dashboard/DashboardLayout";
+import SubmissionDetailPanel from "@/components/dashboard/SubmissionDetailPanel";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -89,6 +90,9 @@ export default function DashboardPage() {
   const [branchFilter, setBranchFilter] = useState("");
   const [debouncedBranch, setDebouncedBranch] = useState("");
   const [offset, setOffset] = useState(0);
+
+  // Detail panel state
+  const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
 
   // Debounce timer ref
   const branchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -250,10 +254,50 @@ export default function DashboardPage() {
   const primaryKey = dataKeys[0] ?? null;
   const secondaryKey = dataKeys[1] ?? null;
 
+  // ── Handlers ─────────────────────────────────────────────────────────────
+
+  const handleSaveSubmission = (updated: Submission) => {
+    if (!submissions) return;
+
+    // Find old submission
+    const oldSub = submissions.items.find(s => s.id === updated.id);
+    if (!oldSub) return;
+
+    // Update local table data
+    setSubmissions({
+      ...submissions,
+      items: submissions.items.map(s => s.id === updated.id ? updated : s)
+    });
+
+    // Safely update KPI counts if status changed
+    if (oldSub.status !== updated.status) {
+      setStatusCounts(prev => {
+        const next = { ...prev };
+        if (typeof next[oldSub.status] === 'number') {
+          next[oldSub.status] = Math.max(0, (next[oldSub.status] as number) - 1);
+        }
+        if (typeof next[updated.status] === 'number') {
+          next[updated.status] = (next[updated.status] as number) + 1;
+        }
+        return next;
+      });
+    }
+  };
+
+  const selectedSubmission = submissions?.items.find(s => s.id === selectedSubmissionId) || null;
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div className="max-w-7xl mx-auto w-full">
+      <SubmissionDetailPanel
+        submission={selectedSubmission}
+        isOpen={selectedSubmissionId !== null}
+        onClose={() => setSelectedSubmissionId(null)}
+        onSave={handleSaveSubmission}
+        statusLabels={statusLabels}
+      />
+
       {/* KPI Summary Cards */}
       <div className="max-w-7xl mx-auto mb-4">
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-auto gap-3" style={{ gridTemplateColumns: `repeat(${1 + statusLabels.length}, minmax(0, 1fr))` }}>
@@ -385,7 +429,8 @@ export default function DashboardPage() {
                     return (
                       <tr
                         key={sub.id}
-                        className="hover:bg-white/[0.03] transition-colors"
+                        onClick={() => setSelectedSubmissionId(sub.id)}
+                        className="hover:bg-white/[0.03] transition-colors cursor-pointer"
                       >
                         {/* Candidate cell: avatar + primary + secondary */}
                         <td className="px-5 py-4">
