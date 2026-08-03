@@ -1,26 +1,169 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --color-background: var(--color-stone-50);
-  --color-foreground: var(--color-stone-900);
-  --color-gold: #d4af37;
-  --color-gold-hover: #b5952f;
+  --font-sans: var(--font-inter);
+  --font-heading: var(--font-outfit);
+
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
+  
+  --color-primary: #6366f1;
+  --color-primary-hover: #4f46e5;
+  --color-primary-light: #818cf8;
+  
+  --color-secondary: #f43f5e;
+  
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-border: var(--surface-border);
+
+  --color-gold: #818cf8;
+  --color-gold-hover: #6366f1;
 }
 
 @layer base {
+  :root {
+    --bg: #F8FAFC; /* Slate 50 */
+    --fg: #0F172A; /* Slate 900 */
+    --surface: rgba(255, 255, 255, 0.7);
+    --surface-hover: rgba(255, 255, 255, 0.9);
+    --surface-border: rgba(0, 0, 0, 0.08);
+    --mesh-bg-1: rgba(99, 102, 241, 0.08);
+    --mesh-bg-2: rgba(244, 63, 94, 0.05);
+    --mesh-bg-3: rgba(99, 102, 241, 0.05);
+  }
+
+  .dark {
+    --bg: #06080F;
+    --fg: #FAFAFA;
+    --surface: rgba(255, 255, 255, 0.03);
+    --surface-hover: rgba(255, 255, 255, 0.05);
+    --surface-border: rgba(255, 255, 255, 0.08);
+    --mesh-bg-1: rgba(99, 102, 241, 0.12);
+    --mesh-bg-2: rgba(244, 63, 94, 0.08);
+    --mesh-bg-3: rgba(99, 102, 241, 0.08);
+  }
+
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* Rich radial mesh gradient behind the whole app */
+    background-image: 
+      radial-gradient(at 0% 0%, var(--mesh-bg-1) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, var(--mesh-bg-2) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, var(--mesh-bg-3) 0px, transparent 50%);
+    background-attachment: fixed;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+    letter-spacing: -0.02em;
   }
 }
 
-/* Custom utilities for large touch targets as requested */
 @layer utilities {
   .touch-target {
     min-height: 44px;
     padding-top: 0.75rem;
     padding-bottom: 0.75rem;
   }
+  
+  .glass-panel {
+    background: var(--color-surface);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--color-surface-border);
+    box-shadow: 
+      0 4px 6px -1px rgba(0, 0, 0, 0.1), 
+      0 2px 4px -1px rgba(0, 0, 0, 0.06),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+  
+  .text-gradient {
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-image: linear-gradient(to right, #818cf8, #f43f5e);
+  }
+}
+
+/* Micro animations */
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+  100% { transform: translateY(0px); }
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; filter: brightness(1); }
+  50% { opacity: 0.8; filter: brightness(1.2); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Custom Form Components Styles */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.custom-select {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2378716c' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 0.5rem center;
+  background-repeat: no-repeat;
+  background-size: 1.5em 1.5em;
+  padding-right: 2rem;
+}
+
+.error-shake {
+  animation: shake 0.4s ease-in-out;
+}
+
+@keyframes aurora-spin {
+  from { transform: translate(-50%, 0) rotate(0deg); }
+  to { transform: translate(-50%, 0) rotate(360deg); }
+}
+@keyframes bounce-subtle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+@keyframes enter-step {
+  from { opacity: 0; transform: translateX(var(--slide-from, 20px)); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  50% { transform: translateX(4px); }
+  75% { transform: translateX(-4px); }
+}
+@keyframes breathe {
+  0%, 100% { opacity: 0.04; transform: scale(1); }
+  50% { opacity: 0.07; transform: scale(1.05); }
+}
+@keyframes fade-down {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
 }

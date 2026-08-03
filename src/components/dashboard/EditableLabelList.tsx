@@ -4,11 +4,25 @@ import { useAuth } from "@clerk/nextjs";
 import { useEffect, useState } from "react";
 import GlassPanel from "@/components/ui/GlassPanel";
 import StatusBadge from "@/components/ui/StatusBadge";
-import { useOrgContext } from "@/components/dashboard/DashboardLayout";
 
-export default function StatusLabelsPage() {
+interface EditableLabelListProps {
+  title: string;
+  description: string;
+  endpointPath: string; // e.g. "/organizations/me/status-labels"
+  dataKey: string;      // e.g. "status_labels"
+  isEditable: boolean;
+  useStatusBadge?: boolean;
+}
+
+export default function EditableLabelList({
+  title,
+  description,
+  endpointPath,
+  dataKey,
+  isEditable,
+  useStatusBadge = false,
+}: EditableLabelListProps) {
   const { getToken, isLoaded, isSignedIn } = useAuth();
-  const { context } = useOrgContext();
   
   const [labels, setLabels] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,8 +38,6 @@ export default function StatusLabelsPage() {
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-  const isOwner = context?.role === "org_owner";
-
   // ── Fetch initial labels ──────────────────────────────────────────────────
   useEffect(() => {
     if (!isLoaded || !isSignedIn) return;
@@ -33,45 +45,47 @@ export default function StatusLabelsPage() {
     (async () => {
       try {
         const token = await getToken();
-        const res = await fetch(`${apiUrl}/organizations/me/status-labels`, {
+        const res = await fetch(`${apiUrl}${endpointPath}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (res.ok) {
           const data = await res.json();
-          setLabels(data.status_labels);
+          setLabels(data[dataKey] || []);
         } else {
-          setError("Failed to load status labels.");
+          setError(`Failed to load ${title.toLowerCase()}.`);
         }
       } catch {
-        setError("Network error loading status labels.");
+        setError(`Network error loading ${title.toLowerCase()}.`);
       } finally {
         setLoading(false);
       }
     })();
-  }, [isLoaded, isSignedIn, getToken, apiUrl]);
+  }, [isLoaded, isSignedIn, getToken, apiUrl, endpointPath, dataKey, title]);
 
   // ── Save handler ──────────────────────────────────────────────────────────
   const saveLabels = async (proposedLabels: string[], successMsg: string) => {
+    if (!isEditable) return; // Guard clause for read-only
+
     // Client-side guards
     if (proposedLabels.length === 0) {
-      setError("You must have at least one status label.");
+      setError(`You must have at least one ${title.toLowerCase().replace(/s$/, '')}.`);
       return;
     }
     
     // Normalize and trim labels for duplicate check
     const trimmedLabels = proposedLabels.map(l => l.trim());
     if (trimmedLabels.some(l => l.length === 0)) {
-      setError("Status labels cannot be empty.");
+      setError(`${title} cannot be empty.`);
       return;
     }
 
     const unique = new Set(trimmedLabels);
     if (unique.size !== trimmedLabels.length) {
-      setError("Status labels must be unique.");
+      setError(`${title} must be unique.`);
       return;
     }
     if (trimmedLabels.some(l => l.length > 50)) {
-      setError("Status labels must be 50 characters or less.");
+      setError(`${title} must be 50 characters or less.`);
       return;
     }
 
@@ -81,24 +95,23 @@ export default function StatusLabelsPage() {
 
     try {
       const token = await getToken();
-      const res = await fetch(`${apiUrl}/organizations/me/status-labels`, {
+      const res = await fetch(`${apiUrl}${endpointPath}`, {
         method: "PATCH",
         headers: { 
           "Authorization": `Bearer ${token}`,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ status_labels: trimmedLabels })
+        body: JSON.stringify({ [dataKey]: trimmedLabels })
       });
 
       if (res.ok) {
         const data = await res.json();
-        setLabels(data.status_labels);
+        setLabels(data[dataKey] || []);
         setSuccess(successMsg);
         setNewLabel("");
         setEditingIndex(null);
       } else {
         const errData = await res.json();
-        // e.g. "Cannot remove label(s) ['in_use'] — they are still referenced..."
         setError(errData.detail || "Failed to save changes. No changes were made.");
       }
     } catch {
@@ -112,13 +125,13 @@ export default function StatusLabelsPage() {
   const handleAdd = () => {
     const val = newLabel.trim();
     if (!val) return;
-    saveLabels([...labels, val], `Added label "${val}"`);
+    saveLabels([...labels, val], `Added "${val}"`);
   };
 
   const handleRemove = (index: number) => {
     const proposed = [...labels];
     const removed = proposed.splice(index, 1)[0];
-    saveLabels(proposed, `Removed label "${removed}"`);
+    saveLabels(proposed, `Removed "${removed}"`);
     setRemovingIndex(null);
   };
 
@@ -131,7 +144,7 @@ export default function StatusLabelsPage() {
     }
     const proposed = [...labels];
     proposed[index] = val;
-    saveLabels(proposed, `Renamed label to "${val}"`);
+    saveLabels(proposed, `Renamed to "${val}"`);
   };
 
   const handleCancelEdit = () => {
@@ -143,50 +156,44 @@ export default function StatusLabelsPage() {
 
   if (loading) {
     return (
-      <div className="max-w-4xl mx-auto flex items-center justify-center min-h-[300px]">
-        <p className="text-[#F5F3EE]/50 animate-pulse">Loading status labels...</p>
-      </div>
+      <GlassPanel className="w-full">
+        <div className="p-6 flex items-center justify-center min-h-[150px]">
+          <p className="text-slate-400 dark:text-white/50 animate-pulse">Loading {title.toLowerCase()}...</p>
+        </div>
+      </GlassPanel>
     );
   }
 
   return (
-    <div className="max-w-4xl mx-auto w-full">
-      <div className="mb-6">
-        <h1 className="text-2xl font-medium text-[#F5F3EE]">Status Labels</h1>
-        <p className="text-sm text-white/40 mt-1">
-          Manage the pipeline stages for your lead captures.
-        </p>
+    <GlassPanel className="w-full overflow-hidden">
+      <div className="p-4 sm:p-6 border-b border-slate-200 dark:border-white/5">
+        <h2 className="text-xl font-bold text-slate-900 dark:text-[#FAFAFA]">{title}</h2>
+        <p className="text-sm text-slate-500 dark:text-white/50 mt-1">{description}</p>
       </div>
 
-      {!isOwner && (
-        <div className="mb-6 p-4 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-200 text-sm">
-          <strong>Note:</strong> You are viewing this page as a staff member. Only the organization owner can edit status labels.
-        </div>
-      )}
+      <div className="p-4 sm:p-6">
+        {error && (
+          <div className="mb-6 p-4 rounded-xl bg-rose-50 border border-rose-200 dark:bg-rose-500/10 dark:border-rose-500/20 text-rose-600 dark:text-rose-400 text-sm">
+            <strong>Error:</strong> {error}
+          </div>
+        )}
 
-      {error && (
-        <div className="mb-6 p-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
-          <strong>Error:</strong> {error}
-        </div>
-      )}
+        {success && (
+          <div className="mb-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-sm">
+            {success}
+          </div>
+        )}
 
-      {success && (
-        <div className="mb-6 p-4 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-sm">
-          {success}
-        </div>
-      )}
-
-      <GlassPanel className="overflow-hidden">
-        <div className="p-4 sm:p-6">
-          <h2 className="text-sm font-medium text-white/60 uppercase tracking-wider mb-4">
-            Current Labels
-          </h2>
-          
+        {labels.length === 0 ? (
+          <div className="text-center py-8 text-slate-400 dark:text-white/40 text-sm">
+            No items found.
+          </div>
+        ) : (
           <ul className="space-y-3">
             {labels.map((label, index) => (
               <li 
                 key={`${label}-${index}`}
-                className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-lg bg-white/5 border border-white/5"
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5"
               >
                 {editingIndex === index ? (
                   <div className="flex-1 flex gap-2">
@@ -195,20 +202,20 @@ export default function StatusLabelsPage() {
                       value={editingValue}
                       onChange={(e) => setEditingValue(e.target.value)}
                       disabled={saving}
-                      className="flex-1 bg-[#0B1220]/60 border border-white/10 rounded-lg px-3 py-2 text-sm text-[#F5F3EE] focus:outline-none focus:ring-2 focus:ring-[#D4AF6A] focus:border-transparent"
+                      className="flex-1 bg-white dark:bg-[#06080F]/50 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-[#FAFAFA] focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50"
                       autoFocus
                     />
                     <button
                       onClick={() => handleSaveEdit(index)}
                       disabled={saving}
-                      className="px-4 py-2 text-sm font-medium text-[#0B1220] bg-[#D4AF6A] rounded-lg hover:bg-[#E5C383] transition-colors disabled:opacity-50"
+                      className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 dark:bg-indigo-500 rounded-lg hover:bg-indigo-500 dark:hover:bg-indigo-400 transition-colors disabled:opacity-50"
                     >
                       Save
                     </button>
                     <button
                       onClick={handleCancelEdit}
                       disabled={saving}
-                      className="px-4 py-2 text-sm font-medium text-white/60 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50"
+                      className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 dark:text-white/60 dark:hover:text-white dark:bg-white/5 dark:hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50"
                     >
                       Cancel
                     </button>
@@ -216,27 +223,34 @@ export default function StatusLabelsPage() {
                 ) : (
                   <>
                     <div className="flex items-center gap-3">
-                      <StatusBadge status={label} />
-                      <span className="text-white/40 text-xs hidden sm:inline">
+                      {useStatusBadge ? (
+                        <StatusBadge status={label} />
+                      ) : (
+                        <span className="px-3 py-1 rounded-full bg-slate-100 border border-slate-200 dark:bg-white/10 dark:border-white/10 text-sm font-medium text-slate-700 dark:text-white/80">
+                          {label}
+                        </span>
+                      )}
+                      <span className="text-slate-400 dark:text-white/40 text-xs hidden sm:inline">
                         (Stored as: {label})
                       </span>
                     </div>
-                    {isOwner && (
+                    
+                    {isEditable && (
                       <div className="flex gap-2 shrink-0">
                         {removingIndex === index ? (
                           <div className="flex items-center gap-2">
-                            <span className="text-xs text-red-400 mr-2">Are you sure?</span>
+                            <span className="text-xs text-rose-500 dark:text-rose-400 mr-2">Are you sure?</span>
                             <button
                               onClick={() => handleRemove(index)}
                               disabled={saving}
-                              className="px-3 py-1.5 text-xs font-medium text-white bg-red-500/80 hover:bg-red-500 rounded-md transition-colors disabled:opacity-50"
+                              className="px-3 py-1.5 text-xs font-medium text-white bg-rose-500 hover:bg-rose-600 dark:bg-rose-500/80 dark:hover:bg-rose-500 rounded-md transition-colors disabled:opacity-50"
                             >
                               Confirm
                             </button>
                             <button
                               onClick={() => setRemovingIndex(null)}
                               disabled={saving}
-                              className="px-3 py-1.5 text-xs font-medium text-white/60 hover:text-white bg-white/5 hover:bg-white/10 rounded-md transition-colors disabled:opacity-50"
+                              className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 dark:text-white/60 dark:hover:text-white dark:bg-white/5 dark:hover:bg-white/10 rounded-md transition-colors disabled:opacity-50"
                             >
                               Cancel
                             </button>
@@ -252,7 +266,7 @@ export default function StatusLabelsPage() {
                                 setSuccess(null);
                               }}
                               disabled={saving}
-                              className="px-3 py-1.5 text-xs font-medium text-white/60 hover:text-white bg-white/5 hover:bg-white/10 rounded-md transition-colors disabled:opacity-50"
+                              className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 dark:text-white/60 dark:hover:text-white dark:bg-white/5 dark:hover:bg-white/10 rounded-md transition-colors disabled:opacity-50"
                             >
                               Rename
                             </button>
@@ -264,7 +278,7 @@ export default function StatusLabelsPage() {
                                 setSuccess(null);
                               }}
                               disabled={saving}
-                              className="px-3 py-1.5 text-xs font-medium text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 rounded-md transition-colors disabled:opacity-50"
+                              className="px-3 py-1.5 text-xs font-medium text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 dark:text-rose-400 dark:hover:text-rose-300 dark:bg-rose-500/10 dark:hover:bg-rose-500/20 rounded-md transition-colors disabled:opacity-50"
                             >
                               Remove
                             </button>
@@ -277,36 +291,36 @@ export default function StatusLabelsPage() {
               </li>
             ))}
           </ul>
-        </div>
-
-        {isOwner && (
-          <div className="p-4 sm:p-6 border-t border-white/10 bg-white/[0.02]">
-            <h2 className="text-sm font-medium text-white/60 uppercase tracking-wider mb-4">
-              Add New Label
-            </h2>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <input
-                type="text"
-                placeholder="e.g. Interview Scheduled"
-                value={newLabel}
-                onChange={(e) => setNewLabel(e.target.value)}
-                disabled={saving}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleAdd();
-                }}
-                className="flex-1 bg-[#0B1220]/60 border border-white/10 rounded-lg px-3 py-2 text-sm text-[#F5F3EE] placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-[#D4AF6A] focus:border-transparent"
-              />
-              <button
-                onClick={handleAdd}
-                disabled={saving || !newLabel.trim()}
-                className="px-6 py-2 text-sm font-medium text-[#0B1220] bg-[#D4AF6A] rounded-lg hover:bg-[#E5C383] transition-colors disabled:opacity-50 shrink-0"
-              >
-                Add Label
-              </button>
-            </div>
-          </div>
         )}
-      </GlassPanel>
-    </div>
+      </div>
+
+      {isEditable && (
+        <div className="p-4 sm:p-6 border-t border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02]">
+          <h2 className="text-sm font-medium text-slate-600 dark:text-white/60 uppercase tracking-wider mb-4">
+            Add New Item
+          </h2>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <input
+              type="text"
+              placeholder="Enter name..."
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              disabled={saving}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleAdd();
+              }}
+              className="flex-1 bg-white dark:bg-[#06080F]/50 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-[#FAFAFA] placeholder:text-slate-400 dark:placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50"
+            />
+            <button
+              onClick={handleAdd}
+              disabled={saving || !newLabel.trim()}
+              className="px-6 py-2 text-sm font-medium text-white bg-indigo-600 dark:bg-indigo-500 rounded-lg hover:bg-indigo-500 dark:hover:bg-indigo-400 transition-colors disabled:opacity-50 shrink-0"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      )}
+    </GlassPanel>
   );
 }

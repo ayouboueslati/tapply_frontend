@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams } from "next/navigation";
+import { SearchableDropdown } from "@/components/tap/SearchableDropdown";
+import { FloatingInput } from "@/components/tap/FloatingInput";
+import { DatePicker } from "@/components/tap/DatePicker";
+import { VisualCardGrid } from "@/components/tap/VisualCardGrid";
 
 type FormField = {
   name: string;
@@ -17,214 +21,374 @@ type TapResponse = {
   default_branch?: string;
 };
 
-export default function TapPage() {
-  const params = useParams();
-  const token = params?.token as string | undefined;
-  
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<TapResponse | null>(null);
+const STEP_META = [
+  { icon: "🎓", heading: "Choose Your Path", subtext: "Find the programme that ignites your ambition." },
+  { icon: "✦",  heading: "Tell Us About You", subtext: "Every great journey starts with a story." },
+  { icon: "✦",  heading: "A Few More Details", subtext: "Help us get to know you better." },
+  { icon: "✦",  heading: "Almost There",       subtext: "One final step before we connect." },
+  { icon: "🤝", heading: "Your Commitment",    subtext: "Confirm your interest and we'll take it from here." },
+];
 
-  // form state
-  const [formData, setFormData] = useState<Record<string, string>>({});
-  const [gdprConsent, setGdprConsent] = useState(false);
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
+export default function TapPage() {
+  const params  = useParams();
+  const token   = params?.token as string | undefined;
+
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState<string | null>(null);
+  const [data,         setData]         = useState<TapResponse | null>(null);
+  const [formData,     setFormData]     = useState<Record<string, string>>({});
+  const [gdprConsent,  setGdprConsent]  = useState(false);
+  const [idempotencyKey]               = useState(() => crypto.randomUUID());
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isSuccess,    setIsSuccess]    = useState(false);
+  const [submitError,  setSubmitError]  = useState<string | null>(null);
+  const [metadata,     setMetadata]     = useState<Record<string, any>>({});
+  const [currentStep,  setCurrentStep]  = useState(0);
+  const [animDir,      setAnimDir]      = useState(1);
+
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const utms: Record<string, string> = {};
+    sp.forEach((v, k) => { if (k.startsWith("utm_")) utms[k] = v; });
+    setMetadata({
+      device_type: /Mobi|Android/i.test(navigator.userAgent) ? "Mobile" : "Desktop",
+      browser: navigator.userAgent, language: navigator.language,
+      timestamp: new Date().toISOString(), referrer: document.referrer || "direct",
+      utm_parameters: Object.keys(utms).length > 0 ? utms : null,
+    });
+  }, []);
 
   useEffect(() => {
     if (!token) return;
-
-    const fetchData = async () => {
+    (async () => {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-        const res = await fetch(`${apiUrl}/tap/${token}`);
-        if (!res.ok) {
-          if (res.status === 404) {
-            setError("This card isn't recognized.");
-          } else {
-            setError("Unable to connect. Please try again later.");
-          }
-          return;
-        }
-        const json = await res.json();
-        setData(json);
-      } catch (err) {
-        setError("Unable to connect. Please try again later.");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
+        const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        const res  = await fetch(`${base}/tap/${token}`);
+        if (!res.ok) { setError(res.status === 404 ? "This card isn't recognised." : "Unable to connect."); return; }
+        setData(await res.json());
+      } catch { setError("Unable to connect. Please try again later."); }
+      finally  { setLoading(false); }
+    })();
   }, [token]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen px-4">
-        <p className="text-stone-500 animate-pulse">Loading...</p>
-      </div>
-    );
-  }
+  const steps = useMemo(() => {
+    if (!data?.form_fields) return [];
+    const branch = data.form_fields.find(f => f.name === "branch");
+    const rest   = data.form_fields.filter(f => f.name !== "branch");
+    const groups: FormField[][] = [];
+    if (branch) groups.push([branch]);
+    for (let i = 0; i < rest.length; i += 3) groups.push(rest.slice(i, i + 3));
+    return groups;
+  }, [data]);
 
-  if (error || !data) {
-    return (
-      <div className="flex items-center justify-center min-h-screen px-4">
-        <div className="text-center space-y-2">
-          <h1 className="text-xl font-medium text-stone-900">Oops</h1>
-          <p className="text-stone-500">{error || "Something went wrong."}</p>
-        </div>
-      </div>
-    );
-  }
+  const totalSteps = steps.length + 1;
+  const progress   = totalSteps > 1 ? (currentStep / (totalSteps - 1)) * 100 : 0;
+  const stepMeta   = STEP_META[Math.min(currentStep, STEP_META.length - 1)];
 
-  const handleInputChange = (name: string, value: string) => {
-    setFormData((prev) => ({ ...prev, [name]: value }));
+  const validate = () => {
+    if (currentStep === steps.length) return gdprConsent;
+    return steps[currentStep].every(f => {
+      if (!f.required) return true;
+      const v = formData[f.name] ?? "";
+      if (!v.trim()) return false;
+      if (f.type === "email") return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+      if (f.type === "tel")   return /^[+]?[\d\s\-\(\)]{7,20}$/.test(v);
+      return true;
+    });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    setSubmitError(null);
-    
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const res = await fetch(`${apiUrl}/tap/${token}/submit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          idempotency_key: idempotencyKey,
-          consent: gdprConsent,
-          data: formData
-        })
-      });
+  const go = (dir: 1 | -1) => {
+    const next = currentStep + dir;
+    if (dir === 1 && !validate()) return;
+    if (next < 0 || next >= totalSteps) return;
+    setAnimDir(dir);
+    setTimeout(() => setCurrentStep(next), 40);
+  };
 
+  const handleSubmit = async () => {
+    if (!validate()) return;
+    setIsSubmitting(true); setSubmitError(null);
+    try {
+      const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const res  = await fetch(`${base}/tap/${token}/submit`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idempotency_key: idempotencyKey, consent: gdprConsent, data: { ...formData, metadata } }),
+      });
       if (!res.ok) {
         let msg = "Unable to submit. Please try again.";
-        try {
-          const err = await res.json();
-          if (err.detail) msg = typeof err.detail === "string" ? err.detail : "Invalid form submission.";
-        } catch (_) {}
+        try { const e = await res.json(); if (e.detail) msg = typeof e.detail === "string" ? e.detail : msg; } catch(_) {}
         throw new Error(msg);
       }
-      
       setIsSuccess(true);
-    } catch (err: any) {
-      setSubmitError(err.message || "Network error. Please try again.");
-    } finally {
-      setIsSubmitting(false);
-    }
+    } catch (e: any) { setSubmitError(e.message || "Network error."); }
+    finally { setIsSubmitting(false); }
   };
 
-  if (isSuccess) {
-    return (
-      <div className="px-6 py-12 flex flex-col items-center justify-center min-h-[50vh]">
-        <div className="text-center space-y-4">
-          <div className="mx-auto w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
-            <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-          <h1 className="text-2xl font-semibold text-stone-900">Thanks</h1>
-          <p className="text-stone-500 text-sm max-w-[250px] mx-auto">
-            {data.org_name || "The organization"} will be in touch.
+  if (loading) return (
+    <div className="flex items-center justify-center min-h-screen" style={{ background: "linear-gradient(135deg,#fdf8f0,#f5ebe0)" }}>
+      <div className="w-10 h-10 rounded-full border-2 border-stone-200 border-t-[#C9A96E] animate-spin" />
+    </div>
+  );
+
+  if (error || !data) return (
+    <div className="flex items-center justify-center min-h-screen p-6" style={{ background: "linear-gradient(135deg,#fdf8f0,#f5ebe0)" }}>
+      <div className="text-center max-w-sm w-full p-10 rounded-3xl bg-white border border-stone-200 shadow-xl space-y-4">
+        <p className="text-4xl">😔</p>
+        <h1 className="text-2xl font-light text-stone-800">Oops</h1>
+        <p className="text-stone-400 font-light">{error || "Something went wrong."}</p>
+      </div>
+    </div>
+  );
+
+  if (isSuccess) return (
+    <div className="flex items-center justify-center min-h-screen p-6 relative overflow-hidden" style={{ background: "linear-gradient(135deg,#fdf8f0,#f5ebe0)" }}>
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className="w-[600px] h-[600px] rounded-full" style={{ background: "radial-gradient(circle, rgba(201,169,110,0.12) 0%, transparent 70%)" }} />
+      </div>
+      <div className="relative z-10 text-center max-w-sm w-full p-10 rounded-[32px] bg-white border border-stone-200 shadow-2xl space-y-8 animate-in slide-in-from-bottom-8 fade-in duration-700">
+        <div className="mx-auto w-20 h-20 rounded-2xl flex items-center justify-center animate-[bounce-subtle_2s_ease-in-out_infinite]"
+          style={{ background: "linear-gradient(135deg,#C9A96E,#A8864E)", boxShadow: "0 8px 30px rgba(201,169,110,0.35)" }}>
+          <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <div>
+          <h1 className="text-2xl font-light text-stone-800 mb-3">Application Complete</h1>
+          <p className="text-stone-500 text-[15px] font-light leading-relaxed">
+            Thank you for applying to <strong className="text-[#C9A96E] font-medium">{data.org_name || "us"}</strong>. We'll be in touch shortly.
           </p>
         </div>
       </div>
+    </div>
+  );
+
+  const renderField = (field: FormField, idx: number) => {
+    const delay = `${idx * 80}ms`;
+    const wrap  = "animate-in slide-in-from-bottom-3 fade-in duration-400 fill-mode-both";
+    const set   = (v: string) => setFormData(p => ({ ...p, [field.name]: v }));
+
+    if (field.name === "branch") return (
+      <div key={field.name} className={`flex flex-col gap-3 ${wrap}`} style={{ animationDelay: delay }}>
+        <label className="text-[11px] uppercase tracking-[0.15em] text-[#C9A96E] font-semibold ml-0.5">
+          Select {field.label} {field.required && <span className="text-rose-500">*</span>}
+        </label>
+        <VisualCardGrid options={field.options || []} value={formData[field.name] || ""} onChange={set} required={field.required} />
+      </div>
     );
-  }
+
+    if (field.name === "dob") return (
+      <div key={field.name} className={wrap} style={{ animationDelay: delay }}>
+        <DatePicker id={field.name} name={field.name} label={field.label} required={field.required}
+          value={formData[field.name] || ""} onChange={set} />
+      </div>
+    );
+
+    if (["dropdown","select"].includes(field.type)) return (
+      <div key={field.name} className={wrap} style={{ animationDelay: delay }}>
+        <SearchableDropdown id={field.name} name={field.name} label={field.label}
+          options={field.options || []} value={formData[field.name] || ""} onChange={set} required={field.required} />
+      </div>
+    );
+
+    const t = (["text","email","tel","textarea"].includes(field.type) ? field.type : "text") as any;
+    return (
+      <div key={field.name} className={wrap} style={{ animationDelay: delay }}>
+        <FloatingInput id={field.name} name={field.name} label={field.label} type={t}
+          required={field.required} value={formData[field.name] || ""} onChange={set} />
+      </div>
+    );
+  };
 
   return (
-    <div className="px-6 py-12 flex flex-col items-center">
-      <div className="mb-8 text-center space-y-1">
-        <h1 className="text-2xl font-semibold text-stone-900">
-          {data.org_name || "Welcome"}
-        </h1>
-        <p className="text-stone-500 text-sm">Please fill out the form below to connect.</p>
-      </div>
+    <div className="flex-1 w-full min-h-screen font-sans flex flex-col lg:grid lg:grid-cols-[40%_60%]" style={{ background: "linear-gradient(135deg,#fdf8f0 0%,#f5ebe0 100%)" }}>
 
-      <form onSubmit={handleSubmit} className="w-full space-y-5">
-        {Array.isArray(data.form_fields) && data.form_fields.length > 0 ? (
-          data.form_fields.map((field) => {
-            const fieldType = ["text", "email", "tel", "dropdown"].includes(field.type) ? field.type : "text";
+      {/* ══ LEFT PANEL — sticky aside, desktop only ══ */}
+      <aside className="hidden lg:flex flex-col h-screen sticky top-0 overflow-hidden relative">
+        <div className="absolute inset-0" style={{ background: "linear-gradient(160deg,#fdf2e0 0%,#f7e8d0 55%,#eedfc8 100%)" }} />
+        <div className="absolute -top-32 -left-32 w-[480px] h-[480px] rounded-full pointer-events-none"
+          style={{ background: "radial-gradient(circle,rgba(201,169,110,0.18) 0%,transparent 70%)", animation: "breathe 9s ease-in-out infinite" }} />
+        <div className="absolute -bottom-20 -right-20 w-[340px] h-[340px] rounded-full pointer-events-none"
+          style={{ background: "radial-gradient(circle,rgba(201,169,110,0.12) 0%,transparent 70%)", animation: "breathe 12s ease-in-out infinite reverse" }} />
 
-          return (
-            <div key={field.name} className="flex flex-col space-y-1">
-              <label htmlFor={field.name} className="text-sm font-medium text-stone-700">
-                {field.label} {field.required && <span className="text-red-400">*</span>}
-              </label>
-              
-              {fieldType === "dropdown" ? (
-                <div className="relative">
-                  <select
-                    id={field.name}
-                    name={field.name}
-                    required={field.required}
-                    value={formData[field.name] || ""}
-                    onChange={(e) => handleInputChange(field.name, e.target.value)}
-                    className="touch-target w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-gold focus:border-transparent appearance-none"
-                  >
-                    <option value="" disabled>Select an option</option>
-                    {(field.options || []).map((opt) => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-stone-500">
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                    </svg>
+        <div className="relative z-10 flex flex-col h-full px-12 py-14">
+          {/* Logo */}
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-xl flex items-center justify-center shrink-0"
+              style={{ background: "linear-gradient(135deg,#C9A96E,#A8864E)", boxShadow: "0 4px 14px rgba(201,169,110,0.4)" }}>
+              <span className="text-white font-bold text-sm">T</span>
+            </div>
+            <span className="text-[12px] font-semibold tracking-[0.22em] uppercase text-stone-400">Tapply</span>
+          </div>
+
+          {/* Step block */}
+          <div key={currentStep} className="flex-1 flex flex-col justify-center py-10 animate-in fade-in slide-in-from-bottom-3 duration-500">
+            <p className="text-5xl mb-6 leading-none select-none">{stepMeta.icon}</p>
+            <p className="text-[10px] uppercase tracking-[0.3em] text-[#C9A96E] font-bold mb-3">
+              Step {currentStep + 1} of {totalSteps}
+            </p>
+            <h2 className="text-3xl font-light text-stone-800 leading-snug mb-3">{stepMeta.heading}</h2>
+            <p className="text-[15px] text-stone-400 font-light leading-relaxed max-w-[240px]">{stepMeta.subtext}</p>
+
+            <div className="flex items-center gap-2 mt-10">
+              {Array.from({ length: totalSteps }).map((_, i) => (
+                <div key={i} className="rounded-full transition-all duration-500 shrink-0" style={{
+                  width: i === currentStep ? 26 : 8, height: 8,
+                  background: i <= currentStep ? "#C9A96E" : "#ddd5cc",
+                  opacity: i < currentStep ? 0.45 : 1,
+                }} />
+              ))}
+            </div>
+          </div>
+
+          {/* Org name */}
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-stone-300 font-medium mb-0.5">Admissions Portal</p>
+            <p className="text-lg text-stone-600 font-light">{data.org_name || "University"}</p>
+          </div>
+        </div>
+      </aside>
+
+      {/* ══ RIGHT COLUMN — scrollable form ══ */}
+      <div className="flex flex-col min-h-screen">
+
+        {/* Progress bar */}
+        <div className="fixed top-0 left-0 w-full h-[3px] z-50 bg-stone-200/60">
+          <div className="h-full transition-all duration-700 ease-out"
+            style={{ width: `${progress}%`, background: "linear-gradient(to right,#B8935A,#C9A96E)", boxShadow: "0 0 6px rgba(201,169,110,0.5)" }} />
+        </div>
+
+        {/* Mobile header (Rich version matching desktop) */}
+        <header key={`mobile-header-${currentStep}`} className="lg:hidden px-6 pt-14 pb-2 flex flex-col items-center text-center animate-in fade-in slide-in-from-top-4 duration-500">
+          <p className="text-4xl mb-3 leading-none select-none drop-shadow-sm">{stepMeta.icon}</p>
+          <p className="text-[9px] uppercase tracking-[0.25em] text-[#C9A96E] font-bold mb-2">
+            Step {currentStep + 1} of {totalSteps}
+          </p>
+          <h2 className="text-2xl font-light text-stone-800 leading-snug mb-2">{stepMeta.heading}</h2>
+          <p className="text-[14px] text-stone-500 font-light leading-relaxed max-w-[280px]">
+            {stepMeta.subtext}
+          </p>
+          
+          {/* Mobile Progress dots */}
+          <div className="flex items-center justify-center gap-1.5 mt-5">
+            {Array.from({ length: totalSteps }).map((_, i) => (
+              <div key={i} className="rounded-full transition-all duration-500 shrink-0" style={{
+                width: i === currentStep ? 20 : 6, height: 6,
+                background: i <= currentStep ? "#C9A96E" : "#ddd5cc",
+                opacity: i < currentStep ? 0.45 : 1,
+              }} />
+            ))}
+          </div>
+        </header>
+
+        {/* Form — centered vertically */}
+        <main className="flex-1 flex flex-col justify-center items-center px-6 sm:px-12 lg:px-20 xl:px-32 pt-10 lg:pt-16 pb-16 w-full">
+          <div className="w-full">
+
+            {/* White card */}
+            <div className="w-full bg-white rounded-3xl border border-stone-200/80 shadow-[0_2px_32px_rgba(0,0,0,0.07)] p-8 sm:p-12">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-[#C9A96E] font-semibold mb-6">
+                Step {currentStep + 1} <span className="text-stone-300 font-normal">/ {totalSteps}</span>
+              </p>
+
+              <div key={currentStep} className="animate-in fade-in duration-400 fill-mode-both"
+                style={{ animationName: "enter-step", "--slide-from": animDir > 0 ? "18px" : "-18px" } as any}>
+
+                {currentStep < steps.length ? (
+                  <div className="space-y-5">
+                    {steps[currentStep].map((f, i) => renderField(f, i))}
                   </div>
-                </div>
+                ) : (
+                  <div className="space-y-6 animate-in slide-in-from-bottom-3 fade-in duration-400">
+                    <div>
+                      <h2 className="text-xl font-light text-stone-800 mb-1">Almost done</h2>
+                      <p className="text-sm text-stone-400 font-light">Please confirm your consent below.</p>
+                    </div>
+
+                    <div className="p-5 rounded-2xl bg-stone-50 border border-stone-200">
+                      <div className="flex items-start gap-4">
+                        <div className="relative flex items-center h-5 mt-0.5 shrink-0">
+                          <input type="checkbox" id="gdpr_consent" required checked={gdprConsent}
+                            onChange={e => setGdprConsent(e.target.checked)}
+                            className="peer h-5 w-5 appearance-none rounded-md border-2 border-stone-300 bg-white checked:bg-[#C9A96E] checked:border-[#C9A96E] transition-all cursor-pointer" />
+                          <svg className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 text-white pointer-events-none opacity-0 scale-50 peer-checked:opacity-100 peer-checked:scale-100 transition-all duration-300"
+                            fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                          </svg>
+                        </div>
+                        <label htmlFor="gdpr_consent" className="text-[13px] text-stone-500 leading-relaxed cursor-pointer select-none font-light">
+                          I agree to be contacted by the university regarding my inquiry and understand that my data will be processed according to the{" "}
+                          <a href="#" className="text-[#C9A96E] hover:text-[#B8935A] underline underline-offset-2 transition-colors">Privacy Policy</a>.
+                        </label>
+                      </div>
+                    </div>
+
+                    {submitError && (
+                      <div className="flex items-center gap-3 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 text-sm font-light animate-[shake_0.4s_ease-in-out]">
+                        <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <circle cx="12" cy="12" r="10" strokeWidth="2"/>
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01"/>
+                        </svg>
+                        {submitError}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Nav buttons — below the card */}
+            <div className="flex gap-3 mt-4">
+              {currentStep > 0 && (
+                <button onClick={() => go(-1)} type="button"
+                  className="w-[100px] shrink-0 rounded-2xl border border-stone-200 bg-white text-stone-500 text-[14px] font-light hover:bg-stone-50 hover:border-stone-300 transition-all active:scale-[0.97]"
+                  style={{ height: 52 }}>
+                  Back
+                </button>
+              )}
+
+              {currentStep < steps.length ? (
+                <button onClick={() => go(1)} type="button" disabled={!validate()}
+                  className="flex-1 relative overflow-hidden group rounded-2xl text-[13px] font-medium tracking-[0.12em] uppercase transition-all active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{ height: 52, background: "linear-gradient(135deg,#C9A96E,#B8935A)", color: "#fff",
+                    boxShadow: "0 4px 18px rgba(201,169,110,0.3),0 1px 3px rgba(0,0,0,0.07)" }}>
+                  <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-1000 group-hover:translate-x-full" />
+                  <span className="relative flex items-center justify-center gap-2">
+                    Continue
+                    <svg className="w-4 h-4 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                  </span>
+                </button>
               ) : (
-                <input
-                  type={fieldType}
-                  id={field.name}
-                  name={field.name}
-                  required={field.required}
-                  value={formData[field.name] || ""}
-                  onChange={(e) => handleInputChange(field.name, e.target.value)}
-                  className="touch-target w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-gold focus:border-transparent"
-                />
+                <button onClick={handleSubmit} type="button" disabled={!validate() || isSubmitting}
+                  className="flex-1 relative overflow-hidden group rounded-2xl text-[13px] font-medium tracking-[0.12em] uppercase transition-all active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{ height: 52, background: "linear-gradient(135deg,#C9A96E,#A8864E)", color: "#fff",
+                    boxShadow: "0 4px 22px rgba(201,169,110,0.35),0 1px 3px rgba(0,0,0,0.07)" }}>
+                  <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-1000 group-hover:translate-x-full" />
+                  <span className="relative flex items-center justify-center gap-2">
+                    {isSubmitting ? (
+                      <>
+                        <svg className="w-4 h-4 animate-spin opacity-70" viewBox="0 0 24 24" fill="none">
+                          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25"/>
+                          <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                        </svg>
+                        Submitting…
+                      </>
+                    ) : (
+                      <>
+                        Submit Application
+                        <svg className="w-4 h-4 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                      </>
+                    )}
+                  </span>
+                </button>
               )}
             </div>
-          );
-        })
-        ) : (
-          <div className="text-center py-4 text-stone-500">
-            No form fields available.
           </div>
-        )}
-
-        <div className="pt-2 flex items-start space-x-3">
-          <input
-            type="checkbox"
-            id="gdpr_consent"
-            required
-            checked={gdprConsent}
-            onChange={(e) => setGdprConsent(e.target.checked)}
-            className="mt-1 h-5 w-5 rounded border-stone-300 text-gold focus:ring-gold accent-gold"
-          />
-          <label htmlFor="gdpr_consent" className="text-sm text-stone-600 leading-tight">
-            I consent to the collection and processing of my personal data in accordance with the Privacy Policy.
-          </label>
-        </div>
-
-        <div className="pt-6 space-y-3">
-          {submitError && (
-            <div className="text-sm text-red-600 bg-red-50 p-3 rounded-md border border-red-100">
-              {submitError}
-            </div>
-          )}
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="touch-target w-full flex items-center justify-center rounded-md bg-gold hover:bg-gold-hover text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isSubmitting ? "Submitting..." : "Submit"}
-          </button>
-        </div>
-      </form>
+        </main>
+      </div>
     </div>
   );
 }

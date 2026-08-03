@@ -9,7 +9,7 @@ export default function GlassPanel({
 }) {
   return (
     <div
-      className={`bg-white/5 backdrop-blur-md border border-white/10 shadow-2xl rounded-2xl ${className}`}
+      className={`glass-panel rounded-2xl ${className}`}
     >
       {children}
     </div>

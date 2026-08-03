@@ -26,6 +26,13 @@ type SubmissionListResponse = {
   offset: number;
 };
 
+type Card = {
+  id: string;
+  stand_id: string;
+  stand_name: string;
+  token: string;
+};
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const PAGE_SIZE = 50;
@@ -94,6 +101,10 @@ export default function DashboardPage() {
   // Detail panel state
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
 
+  // Cards (for tap links in empty state)
+  const [cards, setCards] = useState<Card[]>([]);
+  const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
   // Debounce timer ref
   const branchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -107,7 +118,7 @@ export default function DashboardPage() {
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-  // ── Fetch status labels (once, resilient) ────────────────────────────────
+  // ── Fetch status labels (once, resilient) ──────────────────────────────────────
 
   useEffect(() => {
     if (!isLoaded || !isSignedIn) return;
@@ -115,14 +126,20 @@ export default function DashboardPage() {
     (async () => {
       try {
         const headers = await getAuthHeaders();
-        const res = await fetch(`${apiUrl}/organizations/me/status-labels`, { headers });
-        if (res.ok) {
-          const json = await res.json();
+        const [labelsRes, cardsRes] = await Promise.all([
+          fetch(`${apiUrl}/organizations/me/status-labels`, { headers }),
+          fetch(`${apiUrl}/cards`, { headers }),
+        ]);
+        if (labelsRes.ok) {
+          const json = await labelsRes.json();
           setStatusLabels(json.status_labels ?? []);
         }
-        // If it fails, statusLabels stays [] — filter just won't render options.
+        if (cardsRes.ok) {
+          setCards(await cardsRes.json());
+        }
+        // Both are resilient — if either fails, their state stays at default.
       } catch {
-        // Silently degrade — the submissions table still works.
+        // Silently degrade.
       }
     })();
   }, [isLoaded, isSignedIn, getAuthHeaders, apiUrl]);
@@ -232,7 +249,7 @@ export default function DashboardPage() {
     const seen = new Set<string>();
     for (const sub of submissions.items) {
       for (const key of Object.keys(sub.data)) {
-        if (key === "branch") continue; // branch is its own column
+        if (key === "branch" || key === "metadata") continue; // branch is its own column; metadata is hidden
         if (!seen.has(key)) {
           seen.add(key);
           dataKeys.push(key);
@@ -301,21 +318,23 @@ export default function DashboardPage() {
       {/* KPI Summary Cards */}
       <div className="max-w-7xl mx-auto mb-4">
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-auto gap-3" style={{ gridTemplateColumns: `repeat(${1 + statusLabels.length}, minmax(0, 1fr))` }}>
-          {/* Total card — emphasized with gold */}
-          <GlassPanel className="p-4">
-            <p className="text-[10px] font-medium text-white/40 uppercase tracking-widest mb-1">Total</p>
-            <p className="text-3xl font-semibold text-[#D4AF6A] tabular-nums">
+          {/* Total card — emphasized with gradient */}
+          <GlassPanel className="p-4 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg cursor-default relative overflow-hidden group">
+            <div className="absolute inset-0 bg-indigo-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+            <p className="text-[10px] font-medium text-slate-500 dark:text-white/40 uppercase tracking-widest mb-1 relative z-10">Total</p>
+            <p className="text-3xl font-semibold text-gradient tabular-nums relative z-10">
               {unfilteredTotal !== null ? unfilteredTotal : "—"}
             </p>
           </GlassPanel>
 
           {/* Per-status cards */}
           {statusLabels.map((label) => (
-            <GlassPanel key={label} className="p-4">
-              <p className="text-[10px] font-medium text-white/40 uppercase tracking-widest mb-1 truncate">
+            <GlassPanel key={label} className="p-4 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg cursor-default relative overflow-hidden group">
+              <div className="absolute inset-0 bg-black/[0.02] dark:bg-white/[0.02] opacity-0 group-hover:opacity-100 transition-opacity" />
+              <p className="text-[10px] font-medium text-slate-500 dark:text-white/40 uppercase tracking-widest mb-1 truncate relative z-10">
                 {humanizeLabel(label)}
               </p>
-              <p className="text-3xl font-semibold text-[#F5F3EE] tabular-nums">
+              <p className="text-3xl font-semibold text-slate-900 dark:text-[#F5F3EE] tabular-nums relative z-10">
                 {statusCounts[label] !== undefined && statusCounts[label] !== null
                   ? statusCounts[label]
                   : "—"}
@@ -328,17 +347,17 @@ export default function DashboardPage() {
       {/* Filters */}
       <div className="max-w-7xl mx-auto mb-4">
         <GlassPanel className="p-4">
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-col sm:flex-row gap-4">
             {/* Status filter */}
-            <div className="flex-1 min-w-0">
-              <label htmlFor="filter-status" className="block text-xs text-white/40 mb-1">
+            <div className="flex-1 min-w-0 group">
+              <label htmlFor="filter-status" className="block text-xs font-medium text-slate-500 dark:text-white/40 mb-1.5 transition-colors group-hover:text-slate-700 dark:group-hover:text-white/60">
                 Status
               </label>
               <select
                 id="filter-status"
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full bg-[#0B1220]/60 border border-white/10 rounded-lg px-3 py-2 text-sm text-[#F5F3EE] focus:outline-none focus:ring-2 focus:ring-[#D4AF6A] focus:border-transparent appearance-none"
+                className="w-full bg-white/50 dark:bg-[#06080F]/50 border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-[#FAFAFA] focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all appearance-none hover:bg-slate-50 dark:hover:bg-[#06080F]/80"
               >
                 <option value="">All statuses</option>
                 {statusLabels.map((label) => (
@@ -350,8 +369,8 @@ export default function DashboardPage() {
             </div>
 
             {/* Branch filter */}
-            <div className="flex-1 min-w-0">
-              <label htmlFor="filter-branch" className="block text-xs text-white/40 mb-1">
+            <div className="flex-1 min-w-0 group">
+              <label htmlFor="filter-branch" className="block text-xs font-medium text-slate-500 dark:text-white/40 mb-1.5 transition-colors group-hover:text-slate-700 dark:group-hover:text-white/60">
                 Branch
               </label>
               <input
@@ -360,7 +379,7 @@ export default function DashboardPage() {
                 placeholder="Filter by branch..."
                 value={branchFilter}
                 onChange={(e) => setBranchFilter(e.target.value)}
-                className="w-full bg-[#0B1220]/60 border border-white/10 rounded-lg px-3 py-2 text-sm text-[#F5F3EE] placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-[#D4AF6A] focus:border-transparent"
+                className="w-full bg-white/50 dark:bg-[#06080F]/50 border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-[#FAFAFA] placeholder:text-slate-400 dark:placeholder:text-white/20 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all hover:bg-slate-50 dark:hover:bg-[#06080F]/80"
               />
             </div>
           </div>
@@ -374,53 +393,105 @@ export default function DashboardPage() {
             /* Loading skeleton */
             <div className="p-6 space-y-4">
               {[...Array(5)].map((_, i) => (
-                <div key={i} className="h-4 bg-white/5 rounded animate-pulse" />
+                <div key={i} className="h-4 bg-slate-200 dark:bg-white/5 rounded animate-pulse" />
               ))}
             </div>
           ) : subsError ? (
             /* Error state */
             <div className="p-8 text-center">
-              <p className="text-red-400 font-medium">{subsError}</p>
+              <p className="text-red-500 dark:text-red-400 font-medium">{subsError}</p>
+            </div>
+          ) : submissions && submissions.total === 0 && !statusFilter && !debouncedBranch ? (
+            /* ── First-run / genuine empty state ─────────────────────────────────── */
+            <div className="p-16 flex flex-col items-center text-center relative overflow-hidden">
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl" />
+              {/* Icon */}
+              <div className="relative w-20 h-20 rounded-3xl bg-gradient-to-br from-indigo-500/10 to-rose-500/10 dark:from-indigo-500/20 dark:to-rose-500/20 border border-slate-200 dark:border-white/10 flex items-center justify-center mb-6 animate-float shadow-xl shadow-indigo-500/5 dark:shadow-indigo-500/10">
+                <svg className="w-10 h-10 text-indigo-500 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+
+              <h3 className="text-2xl font-bold text-slate-900 dark:text-[#FAFAFA] mb-3">No submissions yet</h3>
+              <p className="text-sm text-slate-500 dark:text-white/50 max-w-sm mb-8 leading-relaxed">
+                Once candidates tap your NFC card or scan your QR code and fill in the form, their submissions will appear here magically.
+              </p>
+
+              {/* Tap links — shown only if cards were fetched */}
+              {cards.length > 0 && (
+                <div className="w-full max-w-lg relative z-10">
+                  <p className="text-[10px] font-bold text-slate-400 dark:text-white/30 uppercase tracking-widest mb-4 text-left">
+                    Your Active Link{cards.length > 1 ? "s" : ""}
+                  </p>
+                  <ul className="space-y-3">
+                    {cards.map((card) => {
+                      const tapUrl = `${process.env.NEXT_PUBLIC_APP_URL || window.location.origin}/tap/${card.token}`;
+                      const isCopied = copiedToken === card.token;
+                      return (
+                        <li key={card.id} className="group flex items-center gap-3 p-4 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-left hover:bg-slate-100 dark:hover:bg-white/10 transition-all">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-slate-500 dark:text-white/50 mb-1">{card.stand_name}</p>
+                            <p className="text-sm text-slate-900 dark:text-[#FAFAFA] font-mono truncate">{tapUrl}</p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(tapUrl);
+                              setCopiedToken(card.token);
+                              setTimeout(() => setCopiedToken(null), 2000);
+                            }}
+                            className={`shrink-0 px-4 py-2 text-xs font-semibold rounded-lg transition-all ${
+                              isCopied
+                                ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/30'
+                                : 'bg-slate-200 text-slate-700 hover:bg-slate-300 border border-transparent dark:bg-white/10 dark:text-white dark:hover:bg-white/20'
+                            }`}
+                          >
+                            {isCopied ? "Copied!" : "Copy Link"}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
             </div>
           ) : submissions && submissions.items.length === 0 ? (
-            /* Empty state */
-            <div className="p-12 text-center">
-              <p className="text-white/40 text-lg">No submissions yet</p>
-              <p className="text-white/25 text-sm mt-1">
-                Submissions will appear here once candidates tap your NFC cards.
-              </p>
+            /* Filtered empty state (filters active but no results) */
+            <div className="p-16 text-center">
+              <p className="text-slate-600 dark:text-white/50 text-lg font-medium mb-2">No matching submissions</p>
+              <p className="text-slate-400 dark:text-white/30 text-sm">Try adjusting your filters to find what you're looking for.</p>
             </div>
           ) : submissions ? (
             /* Data table */
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
+              <table className="w-full text-left text-sm border-collapse">
                 <thead>
-                  <tr className="border-b border-white/10">
+                  <tr className="border-b border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02]">
                     {/* Candidate column (primary + secondary merged) */}
-                    <th className="px-5 py-3.5 text-xs font-medium text-white/50 uppercase tracking-wider">
+                    <th className="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-white/50 uppercase tracking-widest">
                       {primaryKey ? (labelMap[primaryKey] || primaryKey) : "Candidate"}
                     </th>
                     {/* Remaining data keys (skip primary + secondary since they're in the candidate cell) */}
                     {dataKeys.slice(2).map((key) => (
                       <th
                         key={key}
-                        className="px-5 py-3.5 text-xs font-medium text-white/50 uppercase tracking-wider"
+                        className="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-white/50 uppercase tracking-widest"
                       >
                         {labelMap[key] || key}
                       </th>
                     ))}
-                    <th className="px-5 py-3.5 text-xs font-medium text-white/50 uppercase tracking-wider">
+                    <th className="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-white/50 uppercase tracking-widest">
                       Branch
                     </th>
-                    <th className="px-5 py-3.5 text-xs font-medium text-white/50 uppercase tracking-wider">
+                    <th className="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-white/50 uppercase tracking-widest">
                       Status
                     </th>
-                    <th className="px-5 py-3.5 text-xs font-medium text-white/50 uppercase tracking-wider">
+                    <th className="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-white/50 uppercase tracking-widest">
                       Date
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/[0.06]">
+                <tbody className="divide-y divide-slate-100 dark:divide-white/[0.04] bg-transparent">
                   {submissions.items.map((sub) => {
                     const primaryVal = primaryKey ? (sub.data[primaryKey] ?? "") : "";
                     const secondaryVal = secondaryKey ? (sub.data[secondaryKey] ?? "") : "";
@@ -430,41 +501,50 @@ export default function DashboardPage() {
                       <tr
                         key={sub.id}
                         onClick={() => setSelectedSubmissionId(sub.id)}
-                        className="hover:bg-white/[0.03] transition-colors cursor-pointer"
+                        className="group hover:bg-slate-50 dark:hover:bg-white/[0.04] transition-all duration-200 cursor-pointer relative"
                       >
                         {/* Candidate cell: avatar + primary + secondary */}
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="flex-shrink-0 w-9 h-9 rounded-full bg-[#D4AF6A]/15 border border-[#D4AF6A]/25 flex items-center justify-center">
-                              <span className="text-xs font-semibold text-[#D4AF6A]">{initials}</span>
+                        <td className="px-6 py-4 relative">
+                          <div className="absolute inset-y-0 left-0 w-1 bg-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          <div className="flex items-center gap-4">
+                            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500/10 to-rose-500/10 dark:from-indigo-500/20 dark:to-rose-500/20 border border-slate-200 dark:border-white/10 flex items-center justify-center shadow-inner group-hover:scale-105 transition-transform duration-300">
+                              <span className="text-sm font-semibold text-gradient">{initials}</span>
                             </div>
                             <div className="min-w-0">
-                              <p className="text-sm font-medium text-[#F5F3EE] truncate">
-                                {primaryVal || <span className="text-white/20">—</span>}
+                              <p className="text-sm font-medium text-slate-900 dark:text-[#FAFAFA] truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-200 transition-colors">
+                                {primaryVal || <span className="text-slate-400 dark:text-white/20">—</span>}
                               </p>
                               {secondaryVal && (
-                                <p className="text-xs text-white/35 truncate mt-0.5">{secondaryVal}</p>
+                                <p className="text-xs text-slate-500 dark:text-white/40 truncate mt-0.5">{secondaryVal}</p>
                               )}
                             </div>
                           </div>
                         </td>
                         {/* Remaining data columns */}
-                        {dataKeys.slice(2).map((key) => (
-                          <td key={key} className="px-5 py-4 text-[#F5F3EE]">
-                            {sub.data[key] ?? (
-                              <span className="text-white/20">—</span>
-                            )}
-                          </td>
-                        ))}
-                        <td className="px-5 py-4 text-[#F5F3EE]/70">
+                         {dataKeys.filter(k => k !== 'metadata').slice(2).map((key) => {
+                            const val = sub.data[key];
+                            const displayVal = val === undefined || val === null
+                              ? null
+                              : typeof val === 'object'
+                              ? JSON.stringify(val)
+                              : String(val);
+                            return (
+                              <td key={key} className="px-6 py-4 text-slate-700 dark:text-[#FAFAFA]/90">
+                                {displayVal ?? (
+                                  <span className="text-slate-400 dark:text-white/20">—</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        <td className="px-6 py-4 text-slate-600 dark:text-white/60">
                           {sub.branch || (
-                            <span className="text-white/20">—</span>
+                            <span className="text-slate-400 dark:text-white/20">—</span>
                           )}
                         </td>
-                        <td className="px-5 py-4">
+                        <td className="px-6 py-4">
                           <StatusBadge status={sub.status} />
                         </td>
-                        <td className="px-5 py-4 text-white/40 whitespace-nowrap text-xs">
+                        <td className="px-6 py-4 text-slate-500 dark:text-white/40 whitespace-nowrap text-xs">
                           {formatDate(sub.created_at)}
                         </td>
                       </tr>
@@ -477,22 +557,22 @@ export default function DashboardPage() {
 
           {/* Pagination */}
           {submissions && submissions.items.length > 0 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-white/10">
-              <p className="text-xs text-white/30">
+            <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 dark:border-white/10">
+              <p className="text-xs text-slate-500 dark:text-white/30">
                 Page {currentPage} of {totalPages}
               </p>
               <div className="flex gap-2">
                 <button
                   onClick={() => setOffset((prev) => Math.max(0, prev - PAGE_SIZE))}
                   disabled={!canPrev}
-                  className="px-3 py-1.5 text-xs rounded-md border border-white/10 text-[#F5F3EE]/70 hover:bg-white/5 transition-colors disabled:opacity-25 disabled:cursor-not-allowed"
+                  className="px-3 py-1.5 text-xs rounded-md border border-slate-200 dark:border-white/10 text-slate-600 hover:text-slate-900 hover:bg-slate-50 dark:text-[#F5F3EE]/70 dark:hover:bg-white/5 transition-colors disabled:opacity-25 disabled:cursor-not-allowed"
                 >
                   Previous
                 </button>
                 <button
                   onClick={() => setOffset((prev) => prev + PAGE_SIZE)}
                   disabled={!canNext}
-                  className="px-3 py-1.5 text-xs rounded-md border border-white/10 text-[#F5F3EE]/70 hover:bg-white/5 transition-colors disabled:opacity-25 disabled:cursor-not-allowed"
+                  className="px-3 py-1.5 text-xs rounded-md border border-slate-200 dark:border-white/10 text-slate-600 hover:text-slate-900 hover:bg-slate-50 dark:text-[#F5F3EE]/70 dark:hover:bg-white/5 transition-colors disabled:opacity-25 disabled:cursor-not-allowed"
                 >
                   Next
                 </button>

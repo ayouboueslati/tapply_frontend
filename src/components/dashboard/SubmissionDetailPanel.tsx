@@ -9,7 +9,7 @@ type Submission = {
   org_id: string;
   status: string;
   branch: string | null;
-  data: Record<string, string>;
+  data: Record<string, any>;
   created_at: string;
 };
 
@@ -101,19 +101,19 @@ export default function SubmissionDetailPanel({
     <>
       {/* Dimmed backdrop */}
       <div 
-        className="fixed inset-0 bg-[#0B1220]/60 backdrop-blur-sm z-40 transition-opacity"
+        className="fixed inset-0 bg-slate-900/60 dark:bg-black/60 backdrop-blur-sm z-40 transition-opacity"
         onClick={onClose}
       />
       
       {/* Slide-over panel */}
-      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-[#0B1220] border-l border-white/10 shadow-2xl flex flex-col transform transition-transform duration-300 ease-in-out translate-x-0">
+      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-background border-l border-slate-200 dark:border-white/10 shadow-2xl flex flex-col transform transition-transform duration-300 ease-in-out translate-x-0">
         
         {/* Header */}
-        <div className="h-16 flex items-center justify-between px-6 border-b border-white/10 shrink-0 bg-white/[0.02]">
-          <h2 className="text-lg font-medium text-[#F5F3EE]">Submission Details</h2>
+        <div className="h-16 flex items-center justify-between px-6 border-b border-slate-200 dark:border-white/10 shrink-0 bg-slate-50 dark:bg-white/[0.02]">
+          <h2 className="text-lg font-medium text-slate-900 dark:text-[#FAFAFA]">Submission Details</h2>
           <button 
             onClick={onClose}
-            className="text-white/40 hover:text-white transition-colors"
+            className="text-slate-500 hover:text-slate-700 dark:text-white/40 dark:hover:text-white transition-colors"
             aria-label="Close panel"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -125,7 +125,7 @@ export default function SubmissionDetailPanel({
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {error && (
-            <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+            <div className="p-4 rounded-lg bg-rose-50 border border-rose-200 dark:bg-rose-500/10 dark:border-rose-500/20 text-rose-600 dark:text-rose-400 text-sm">
               {error}
             </div>
           )}
@@ -135,7 +135,7 @@ export default function SubmissionDetailPanel({
               {/* Editable Fields */}
               <GlassPanel className="p-5 space-y-4">
                 <div>
-                  <label htmlFor="status-select" className="block text-xs font-medium text-white/40 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="status-select" className="block text-xs font-medium text-slate-500 dark:text-white/40 uppercase tracking-wider mb-1.5">
                     Status
                   </label>
                   <select
@@ -143,7 +143,7 @@ export default function SubmissionDetailPanel({
                     value={status}
                     onChange={(e) => setStatus(e.target.value)}
                     disabled={saving}
-                    className="w-full bg-[#0B1220]/60 border border-white/10 rounded-lg px-3 py-2 text-sm text-[#F5F3EE] focus:outline-none focus:ring-2 focus:ring-[#D4AF6A] focus:border-transparent appearance-none"
+                    className="w-full bg-white/50 dark:bg-[#06080F]/50 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-[#FAFAFA] focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 appearance-none transition-all hover:bg-slate-50 dark:hover:bg-[#06080F]/80"
                   >
                     {/* Make sure the current status is in the list, even if it was removed from org labels mid-session (helps prevent it being silently switched if they just hit save) */}
                     {!statusLabels.includes(submission.status) && (
@@ -156,7 +156,7 @@ export default function SubmissionDetailPanel({
                 </div>
 
                 <div>
-                  <label htmlFor="branch-input" className="block text-xs font-medium text-white/40 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="branch-input" className="block text-xs font-medium text-slate-500 dark:text-white/40 uppercase tracking-wider mb-1.5">
                     Branch
                   </label>
                   <input
@@ -166,24 +166,27 @@ export default function SubmissionDetailPanel({
                     onChange={(e) => setBranch(e.target.value)}
                     disabled={saving}
                     placeholder="e.g. New York, Remote"
-                    className="w-full bg-[#0B1220]/60 border border-white/10 rounded-lg px-3 py-2 text-sm text-[#F5F3EE] placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-[#D4AF6A] focus:border-transparent"
+                    className="w-full bg-white/50 dark:bg-[#06080F]/50 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-[#FAFAFA] placeholder:text-slate-400 dark:placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all hover:bg-slate-50 dark:hover:bg-[#06080F]/80"
                   />
                 </div>
               </GlassPanel>
 
               {/* Read-only Data Blob */}
               <div>
-                <h3 className="text-xs font-medium text-white/40 uppercase tracking-wider mb-3">
+                <h3 className="text-xs font-medium text-slate-500 dark:text-white/40 uppercase tracking-wider mb-3">
                   Candidate Data
                 </h3>
                 <GlassPanel className="overflow-hidden">
-                  <ul className="divide-y divide-white/[0.06]">
+                  <ul className="divide-y divide-slate-200 dark:divide-white/[0.06]">
                     {Object.entries(submission.data).map(([key, value]) => {
-                      if (key === "branch") return null; // already handled
+                      if (key === "branch" || key === "metadata") return null; // already handled
+                      
+                      // Handle empty strings beautifully
+                      const displayValue = value === "" ? "—" : value;
                       return (
                         <li key={key} className="px-5 py-3">
-                          <p className="text-xs text-white/40 mb-0.5">{labelMap[key] || key}</p>
-                          <p className="text-sm text-[#F5F3EE]">{value || "—"}</p>
+                          <p className="text-xs text-slate-500 dark:text-white/40 mb-0.5">{labelMap[key] || key}</p>
+                          <p className="text-sm text-slate-900 dark:text-[#FAFAFA]">{String(displayValue)}</p>
                         </li>
                       );
                     })}
@@ -192,31 +195,67 @@ export default function SubmissionDetailPanel({
               </div>
 
               {/* Metadata */}
-              <div className="text-xs text-white/30 text-center space-y-1 mt-4">
+              {(() => {
+                const meta = submission.data.metadata;
+                if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return null;
+                const metaEntries = Object.entries(meta as Record<string, unknown>);
+                if (metaEntries.length === 0) return null;
+                return (
+                  <div>
+                    <h3 className="text-xs font-medium text-slate-500 dark:text-white/40 uppercase tracking-wider mb-3">
+                      Hidden Metadata
+                    </h3>
+                    <GlassPanel className="overflow-hidden">
+                      <ul className="divide-y divide-slate-200 dark:divide-white/[0.06]">
+                        {metaEntries.map(([key, value]) => {
+                          let displayValue: string;
+                          if (value === null || value === undefined) {
+                            displayValue = "—";
+                          } else if (typeof value === 'object') {
+                            displayValue = JSON.stringify(value);
+                          } else {
+                            displayValue = String(value) || "—";
+                          }
+                          return (
+                            <li key={key} className="px-5 py-3">
+                              <p className="text-xs text-slate-500 dark:text-white/40 mb-0.5 capitalize">{key.replace(/_/g, ' ')}</p>
+                              <p className="text-sm text-slate-900 dark:text-[#FAFAFA] break-all">{displayValue}</p>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </GlassPanel>
+                  </div>
+                );
+              })()}
+
+              {/* System Info */}
+              <div className="text-xs text-slate-400 dark:text-white/30 text-center space-y-1 mt-4">
                 <p>Submitted: {new Date(submission.created_at).toLocaleString()}</p>
                 <p>ID: {submission.id}</p>
+                <p>Card ID: {submission.card_id}</p>
               </div>
             </>
           ) : (
-            <div className="text-center text-white/40 py-8">
+            <div className="text-center text-slate-400 dark:text-white/40 py-8">
               No submission selected.
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-white/10 bg-white/[0.02] flex justify-end gap-3 shrink-0">
+        <div className="p-4 border-t border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] flex justify-end gap-3 shrink-0">
           <button
             onClick={onClose}
             disabled={saving}
-            className="px-4 py-2 text-sm font-medium text-white/60 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50"
+            className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 dark:text-white/60 dark:hover:text-white dark:bg-white/5 dark:hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
             disabled={saving || !submission || (status === submission.status && branch === (submission.branch || ""))}
-            className="px-6 py-2 text-sm font-medium text-[#0B1220] bg-[#D4AF6A] rounded-lg hover:bg-[#E5C383] transition-colors disabled:opacity-50"
+            className="px-6 py-2 text-sm font-medium text-white bg-indigo-600 dark:bg-indigo-500 rounded-lg hover:bg-indigo-500 dark:hover:bg-indigo-400 transition-colors disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save Changes"}
           </button>
