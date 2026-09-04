@@ -85,7 +85,9 @@ export default function SubmissionDetailPanel({
         const errData = await res.json();
         setError(errData.detail || "Failed to save submission.");
       }
-    } catch {
+    } catch (error) {
+      const err = error as Error;
+      console.error("Error saving submission:", err);
       setError("Network error while saving.");
     } finally {
       setSaving(false);

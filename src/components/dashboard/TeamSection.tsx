@@ -47,7 +47,9 @@ export default function TeamSection({ isOwner }: TeamSectionProps) {
         } else {
           setError("Failed to load team members.");
         }
-      } catch {
+      } catch (error) {
+        const err = error as Error;
+        console.error("Error loading team members:", err);
         setError("Network error loading team members.");
       } finally {
         setLoading(false);
@@ -96,7 +98,9 @@ export default function TeamSection({ isOwner }: TeamSectionProps) {
         const errData = await res.json();
         setError(errData.detail || "Failed to update permissions.");
       }
-    } catch {
+    } catch (error) {
+      const err = error as Error;
+      console.error("Error saving permissions:", err);
       setError("Network error while saving.");
     }
   };

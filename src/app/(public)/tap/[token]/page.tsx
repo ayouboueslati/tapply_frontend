@@ -19,6 +19,10 @@ type TapResponse = {
   org_name?: string;
   form_fields?: FormField[];
   default_branch?: string;
+  logo_url?: string | null;
+  theme_color?: string;
+  welcome_title?: string;
+  welcome_text?: string;
 };
 
 const STEP_META = [
@@ -45,6 +49,7 @@ export default function TapPage() {
   const [metadata,     setMetadata]     = useState<Record<string, any>>({});
   const [currentStep,  setCurrentStep]  = useState(0);
   const [animDir,      setAnimDir]      = useState(1);
+  const [toastError,   setToastError]   = useState<string | null>(null);
 
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
@@ -64,12 +69,91 @@ export default function TapPage() {
       try {
         const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
         const res  = await fetch(`${base}/tap/${token}`);
-        if (!res.ok) { setError(res.status === 404 ? "This card isn't recognised." : "Unable to connect."); return; }
+        if (!res.ok) { 
+           try {
+              const errData = await res.json();
+              if (errData.detail) {
+                 setError(errData.detail);
+                 return;
+              }
+           } catch(error) {
+              const err = error as Error;
+              console.error("Failed to parse error response:", err);
+           }
+           setError(res.status === 404 ? "This card isn't recognised." : "Unable to connect."); 
+           return; 
+        }
         setData(await res.json());
       } catch { setError("Unable to connect. Please try again later."); }
       finally  { setLoading(false); }
     })();
   }, [token]);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("tapply_returning_user");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.expiresAt > Date.now() && parsed.data) {
+          setFormData(parsed.data);
+        }
+      }
+    } catch(error) {
+      const err = error as Error;
+      console.error("Failed to load returning user data:", err);
+      setToastError("Failed to load previous data.");
+    }
+  }, []);
+
+  useEffect(() => {
+    const syncOfflineQueue = async () => {
+      if (!navigator.onLine) return;
+      const queueStr = localStorage.getItem("tapply_offline_queue");
+      if (!queueStr) return;
+      
+      try {
+        const queue: Array<{ token: string, payload: any, addedAt: number }> = JSON.parse(queueStr);
+        if (queue.length === 0) return;
+
+        const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        const remaining = [];
+        for (const item of queue) {
+           try {
+              const res = await fetch(`${base}/tap/${item.token}/submit`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(item.payload),
+              });
+              if (!res.ok && res.status !== 429) {
+                 if (res.status >= 500) {
+                   remaining.push(item);
+                 }
+              }
+           } catch(e) {
+              remaining.push(item);
+           }
+        }
+        localStorage.setItem("tapply_offline_queue", JSON.stringify(remaining));
+      } catch(error) {
+        const err = error as Error;
+        console.error("Failed to process offline queue:", err);
+        setToastError("Failed to sync offline queue.");
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") syncOfflineQueue();
+    };
+
+    window.addEventListener("online", syncOfflineQueue);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    
+    syncOfflineQueue();
+
+    return () => {
+      window.removeEventListener("online", syncOfflineQueue);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
 
   const steps = useMemo(() => {
     if (!data?.form_fields) return [];
@@ -83,7 +167,6 @@ export default function TapPage() {
 
   const totalSteps = steps.length + 1;
   const progress   = totalSteps > 1 ? (currentStep / (totalSteps - 1)) * 100 : 0;
-  const stepMeta   = STEP_META[Math.min(currentStep, STEP_META.length - 1)];
 
   const validate = () => {
     if (currentStep === steps.length) return gdprConsent;
@@ -108,11 +191,17 @@ export default function TapPage() {
   const handleSubmit = async () => {
     if (!validate()) return;
     setIsSubmitting(true); setSubmitError(null);
+    const payload = { idempotency_key: idempotencyKey, consent: gdprConsent, data: { ...formData, metadata } };
+
     try {
+      if (!navigator.onLine) {
+        throw new Error("offline");
+      }
+
       const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
       const res  = await fetch(`${base}/tap/${token}/submit`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idempotency_key: idempotencyKey, consent: gdprConsent, data: { ...formData, metadata } }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         let msg = "Unable to submit. Please try again.";
@@ -120,7 +209,30 @@ export default function TapPage() {
         throw new Error(msg);
       }
       setIsSuccess(true);
-    } catch (e: any) { setSubmitError(e.message || "Network error."); }
+      
+      try {
+        localStorage.setItem("tapply_returning_user", JSON.stringify({
+          data: formData,
+          expiresAt: Date.now() + 24 * 60 * 60 * 1000 // 24 hours expiry
+        }));
+      } catch(e) {}
+    } catch (e: any) { 
+      if (e.message === "offline" || e.name === "TypeError") {
+         try {
+           const queue = JSON.parse(localStorage.getItem("tapply_offline_queue") || "[]");
+           queue.push({ token, payload, addedAt: Date.now() });
+           localStorage.setItem("tapply_offline_queue", JSON.stringify(queue));
+         } catch(error) {
+           const err = error as Error;
+           console.error("Failed to queue offline submission:", err);
+           setSubmitError("Failed to save offline application.");
+           return;
+         }
+         setIsSuccess(true);
+      } else {
+         setSubmitError(e.message || "Network error."); 
+      }
+    }
     finally { setIsSubmitting(false); }
   };
 
@@ -199,6 +311,17 @@ export default function TapPage() {
     );
   };
 
+  const accent = data.theme_color || "#C9A96E";
+  const accentLight = `${accent}29`; // 16% opacity
+
+  // Override step 0 heading/subtext with org-configured branding
+  const dynamicStepMeta = STEP_META.map((s, i) =>
+    i === 0
+      ? { ...s, heading: data.welcome_title || s.heading, subtext: data.welcome_text || s.subtext }
+      : s
+  );
+  const stepMeta = dynamicStepMeta[Math.min(currentStep, dynamicStepMeta.length - 1)];
+
   return (
     <div className="flex-1 w-full min-h-screen font-sans flex flex-col lg:grid lg:grid-cols-[40%_60%]" style={{ background: "linear-gradient(135deg,#fdf8f0 0%,#f5ebe0 100%)" }}>
 
@@ -213,17 +336,21 @@ export default function TapPage() {
         <div className="relative z-10 flex flex-col h-full px-12 py-14">
           {/* Logo */}
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl flex items-center justify-center shrink-0"
-              style={{ background: "linear-gradient(135deg,#C9A96E,#A8864E)", boxShadow: "0 4px 14px rgba(201,169,110,0.4)" }}>
-              <span className="text-white font-bold text-sm">T</span>
-            </div>
-            <span className="text-[12px] font-semibold tracking-[0.22em] uppercase text-stone-400">Tapply</span>
+            {data.logo_url ? (
+              <img src={data.logo_url} alt={data.org_name} className="h-9 w-auto object-contain rounded-xl" />
+            ) : (
+              <div className="h-9 w-9 rounded-xl flex items-center justify-center shrink-0"
+                style={{ background: `linear-gradient(135deg,${accent},${accent}bb)`, boxShadow: `0 4px 14px ${accent}66` }}>
+                <span className="text-white font-bold text-sm">{(data.org_name || "T")[0].toUpperCase()}</span>
+              </div>
+            )}
+            <span className="text-[12px] font-semibold tracking-[0.22em] uppercase text-stone-400">{data.org_name || "Tapply"}</span>
           </div>
 
           {/* Step block */}
           <div key={currentStep} className="flex-1 flex flex-col justify-center py-10 animate-in fade-in slide-in-from-bottom-3 duration-500">
             <p className="text-5xl mb-6 leading-none select-none">{stepMeta.icon}</p>
-            <p className="text-[10px] uppercase tracking-[0.3em] text-[#C9A96E] font-bold mb-3">
+            <p className="text-[10px] uppercase tracking-[0.3em] font-bold mb-3" style={{ color: accent }}>
               Step {currentStep + 1} of {totalSteps}
             </p>
             <h2 className="text-3xl font-light text-stone-800 leading-snug mb-3">{stepMeta.heading}</h2>
@@ -233,7 +360,7 @@ export default function TapPage() {
               {Array.from({ length: totalSteps }).map((_, i) => (
                 <div key={i} className="rounded-full transition-all duration-500 shrink-0" style={{
                   width: i === currentStep ? 26 : 8, height: 8,
-                  background: i <= currentStep ? "#C9A96E" : "#ddd5cc",
+                  background: i <= currentStep ? accent : "#ddd5cc",
                   opacity: i < currentStep ? 0.45 : 1,
                 }} />
               ))}
@@ -254,13 +381,13 @@ export default function TapPage() {
         {/* Progress bar */}
         <div className="fixed top-0 left-0 w-full h-[3px] z-50 bg-stone-200/60">
           <div className="h-full transition-all duration-700 ease-out"
-            style={{ width: `${progress}%`, background: "linear-gradient(to right,#B8935A,#C9A96E)", boxShadow: "0 0 6px rgba(201,169,110,0.5)" }} />
+            style={{ width: `${progress}%`, background: `linear-gradient(to right,${accent}bb,${accent})`, boxShadow: `0 0 6px ${accent}80` }} />
         </div>
 
         {/* Mobile header (Rich version matching desktop) */}
         <header key={`mobile-header-${currentStep}`} className="lg:hidden px-6 pt-14 pb-2 flex flex-col items-center text-center animate-in fade-in slide-in-from-top-4 duration-500">
           <p className="text-4xl mb-3 leading-none select-none drop-shadow-sm">{stepMeta.icon}</p>
-          <p className="text-[9px] uppercase tracking-[0.25em] text-[#C9A96E] font-bold mb-2">
+          <p className="text-[9px] uppercase tracking-[0.25em] font-bold mb-2" style={{ color: accent }}>
             Step {currentStep + 1} of {totalSteps}
           </p>
           <h2 className="text-2xl font-light text-stone-800 leading-snug mb-2">{stepMeta.heading}</h2>
@@ -273,7 +400,7 @@ export default function TapPage() {
             {Array.from({ length: totalSteps }).map((_, i) => (
               <div key={i} className="rounded-full transition-all duration-500 shrink-0" style={{
                 width: i === currentStep ? 20 : 6, height: 6,
-                background: i <= currentStep ? "#C9A96E" : "#ddd5cc",
+                background: i <= currentStep ? accent : "#ddd5cc",
                 opacity: i < currentStep ? 0.45 : 1,
               }} />
             ))}
@@ -389,6 +516,20 @@ export default function TapPage() {
           </div>
         </main>
       </div>
+
+      {toastError && (
+        <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-5 fade-in duration-300">
+          <div className="flex items-center gap-3 p-4 rounded-xl bg-stone-800 border border-stone-700 text-white text-sm shadow-[0_8px_30px_rgba(0,0,0,0.2)]">
+            <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+            </svg>
+            <span className="font-light">{toastError}</span>
+            <button onClick={() => setToastError(null)} className="ml-2 text-stone-400 hover:text-white transition-colors" aria-label="Dismiss">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

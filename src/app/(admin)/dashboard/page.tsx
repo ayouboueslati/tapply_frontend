@@ -6,6 +6,7 @@ import GlassPanel from "@/components/ui/GlassPanel";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { useOrgContext } from "@/components/dashboard/DashboardLayout";
 import SubmissionDetailPanel from "@/components/dashboard/SubmissionDetailPanel";
+import CardManagement from "@/components/dashboard/CardManagement";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,6 +32,8 @@ type Card = {
   stand_id: string;
   stand_name: string;
   token: string;
+  is_active: boolean;
+  assigned_recruiter_id: string | null;
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -319,8 +322,8 @@ export default function DashboardPage() {
       <div className="max-w-7xl mx-auto mb-4">
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-auto gap-3" style={{ gridTemplateColumns: `repeat(${1 + statusLabels.length}, minmax(0, 1fr))` }}>
           {/* Total card — emphasized with gradient */}
-          <GlassPanel className="p-4 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg cursor-default relative overflow-hidden group">
-            <div className="absolute inset-0 bg-indigo-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+          <GlassPanel className="p-4 transition-all duration-300 hover:scale-[1.02] hover:shadow-xl cursor-default relative overflow-hidden group">
+            <div className="absolute inset-0 bg-emerald-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
             <p className="text-[10px] font-medium text-slate-500 dark:text-white/40 uppercase tracking-widest mb-1 relative z-10">Total</p>
             <p className="text-3xl font-semibold text-gradient tabular-nums relative z-10">
               {unfilteredTotal !== null ? unfilteredTotal : "—"}
@@ -329,7 +332,7 @@ export default function DashboardPage() {
 
           {/* Per-status cards */}
           {statusLabels.map((label) => (
-            <GlassPanel key={label} className="p-4 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg cursor-default relative overflow-hidden group">
+            <GlassPanel key={label} className="p-4 transition-all duration-300 hover:scale-[1.02] hover:shadow-xl cursor-default relative overflow-hidden group">
               <div className="absolute inset-0 bg-black/[0.02] dark:bg-white/[0.02] opacity-0 group-hover:opacity-100 transition-opacity" />
               <p className="text-[10px] font-medium text-slate-500 dark:text-white/40 uppercase tracking-widest mb-1 truncate relative z-10">
                 {humanizeLabel(label)}
@@ -343,6 +346,9 @@ export default function DashboardPage() {
           ))}
         </div>
       </div>
+
+      {/* NFC Cards & QR Links */}
+      <CardManagement cards={cards} onCardsChange={setCards} />
 
       {/* Filters */}
       <div className="max-w-7xl mx-auto mb-4">
@@ -404,10 +410,10 @@ export default function DashboardPage() {
           ) : submissions && submissions.total === 0 && !statusFilter && !debouncedBranch ? (
             /* ── First-run / genuine empty state ─────────────────────────────────── */
             <div className="p-16 flex flex-col items-center text-center relative overflow-hidden">
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl" />
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl" />
               {/* Icon */}
-              <div className="relative w-20 h-20 rounded-3xl bg-gradient-to-br from-indigo-500/10 to-rose-500/10 dark:from-indigo-500/20 dark:to-rose-500/20 border border-slate-200 dark:border-white/10 flex items-center justify-center mb-6 animate-float shadow-xl shadow-indigo-500/5 dark:shadow-indigo-500/10">
-                <svg className="w-10 h-10 text-indigo-500 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <div className="relative w-20 h-20 rounded-3xl bg-gradient-to-br from-emerald-500/10 to-sky-500/10 dark:from-emerald-500/20 dark:to-sky-500/20 border border-slate-200 dark:border-white/10 flex items-center justify-center mb-6 animate-float shadow-xl shadow-emerald-500/5 dark:shadow-emerald-500/10">
+                <svg className="w-10 h-10 text-emerald-500 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                     d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
@@ -505,9 +511,9 @@ export default function DashboardPage() {
                       >
                         {/* Candidate cell: avatar + primary + secondary */}
                         <td className="px-6 py-4 relative">
-                          <div className="absolute inset-y-0 left-0 w-1 bg-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          <div className="absolute inset-y-0 left-0 w-1 bg-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity" />
                           <div className="flex items-center gap-4">
-                            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500/10 to-rose-500/10 dark:from-indigo-500/20 dark:to-rose-500/20 border border-slate-200 dark:border-white/10 flex items-center justify-center shadow-inner group-hover:scale-105 transition-transform duration-300">
+                            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500/10 to-sky-500/10 dark:from-emerald-500/20 dark:to-sky-500/20 border border-slate-200 dark:border-white/10 flex items-center justify-center shadow-inner group-hover:scale-105 transition-transform duration-300">
                               <span className="text-sm font-semibold text-gradient">{initials}</span>
                             </div>
                             <div className="min-w-0">
