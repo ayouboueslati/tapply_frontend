@@ -20,7 +20,6 @@ export default function SignInPage() {
   }, []);
 
   const handleEmailSubmit = async (e: React.FormEvent) => {
-    console.log("isLoaded:", isLoaded, "signIn:", signIn);
     e.preventDefault();
     if (!isLoaded) return;
 
