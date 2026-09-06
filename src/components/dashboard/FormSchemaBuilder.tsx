@@ -68,7 +68,8 @@ export default function FormSchemaBuilder({ isOwner }: { isOwner: boolean }) {
       }));
       setFields(hydrated);
       setSaved(hydrated);
-    } catch (e: any) {
+    } catch (error) {
+      const e = error as Error;
       setError(e.message);
     } finally {
       setLoading(false);
@@ -108,7 +109,8 @@ export default function FormSchemaBuilder({ isOwner }: { isOwner: boolean }) {
       setSaved(hydrated);
       setWasSaved(true);
       setTimeout(() => setWasSaved(false), 2500);
-    } catch (e: any) {
+    } catch (error) {
+      const e = error as Error;
       setError(e.message);
     } finally {
       setSaving(false);

@@ -44,7 +44,8 @@ export default function SignInPage() {
       } else {
         setError("Email code authentication is not enabled for this user.");
       }
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as Error;
       setError(err.errors?.[0]?.longMessage || "An error occurred. Please try again.");
     } finally {
       setIsLoading(false);
@@ -70,7 +71,8 @@ export default function SignInPage() {
       } else {
         setError("Unable to complete sign in. Please try again.");
       }
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as Error;
       setError(err.errors?.[0]?.longMessage || "Invalid or expired code.");
     } finally {
       setIsLoading(false);

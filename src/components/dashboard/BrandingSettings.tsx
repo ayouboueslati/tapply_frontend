@@ -37,7 +37,8 @@ export default function BrandingSettings({ isOwner }: { isOwner: boolean }) {
       const data = await res.json();
       setBranding(data);
       setDraft(data);
-    } catch (e: any) {
+    } catch (error) {
+      const e = error as Error;
       setError(e.message);
     } finally {
       setLoading(false);
@@ -66,7 +67,8 @@ export default function BrandingSettings({ isOwner }: { isOwner: boolean }) {
       setDraft(data);
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
-    } catch (e: any) {
+    } catch (error) {
+      const e = error as Error;
       setError(e.message);
     } finally {
       setSaving(false);

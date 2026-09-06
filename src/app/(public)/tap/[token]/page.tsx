@@ -216,7 +216,8 @@ export default function TapPage() {
           expiresAt: Date.now() + 24 * 60 * 60 * 1000 // 24 hours expiry
         }));
       } catch(e) {}
-    } catch (e: any) { 
+    } catch (error) { 
+      const e = error as Error;
       if (e.message === "offline" || e.name === "TypeError") {
          try {
            const queue = JSON.parse(localStorage.getItem("tapply_offline_queue") || "[]");
